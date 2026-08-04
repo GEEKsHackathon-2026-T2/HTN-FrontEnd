@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import '../../core/theme/app_colors.dart';
 
 class AppBottomNav extends StatelessWidget {
@@ -111,7 +112,7 @@ class _AiNavButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      onTap: () {},
+      onTap: () => context.push('/ai-complaint'),
       customBorder: const CircleBorder(),
       child: Column(
         mainAxisSize: MainAxisSize.min,

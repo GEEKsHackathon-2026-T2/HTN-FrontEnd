@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_colors.dart';
 
 class QuickServiceSection extends StatelessWidget {
@@ -7,18 +8,20 @@ class QuickServiceSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
-      children: const [
+      children: [
         Expanded(
           child: _QuickServiceCard(
             icon: Icons.auto_awesome,
             label: 'AI 민원신청',
+            onTap: () => context.push('/ai-complaint'),
           ),
         ),
-        SizedBox(width: 14),
+        const SizedBox(width: 14),
         Expanded(
           child: _QuickServiceCard(
             icon: Icons.description_outlined,
             label: '적극행정 신청',
+            onTap: () {},
           ),
         ),
       ],
@@ -27,15 +30,20 @@ class QuickServiceSection extends StatelessWidget {
 }
 
 class _QuickServiceCard extends StatelessWidget {
-  const _QuickServiceCard({required this.icon, required this.label});
+  const _QuickServiceCard({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
 
   final IconData icon;
   final String label;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      onTap: () {},
+      onTap: onTap,
       borderRadius: BorderRadius.circular(16),
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 22),

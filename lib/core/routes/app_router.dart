@@ -1,4 +1,5 @@
 import 'package:go_router/go_router.dart';
+import '../../features/ai_complaint/ai_complaint_screen.dart';
 import '../../features/complaint/complaint_screen.dart';
 import '../../features/home/home_screen.dart';
 import '../../features/my/my_screen.dart';
@@ -45,6 +46,10 @@ final router = GoRouter(
           ],
         ),
       ],
+    ),
+    GoRoute(
+      path: '/ai-complaint',
+      builder: (context, state) => const AiComplaintScreen(),
     ),
   ],
 );
