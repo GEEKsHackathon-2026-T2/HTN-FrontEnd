@@ -13,7 +13,7 @@ class HomeHeader extends StatelessWidget {
           const Icon(Icons.shield_outlined, color: AppColors.primary, size: 24),
           const SizedBox(width: 8),
           const Text(
-            '정부AI민원',
+            '우선해줘',
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w700,

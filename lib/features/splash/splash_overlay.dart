@@ -84,7 +84,7 @@ class _SplashContent extends StatelessWidget {
                 height: 160,
               ),
               const Text(
-                '정부AI민원',
+                '우선해줘',
                 style: TextStyle(
                   fontSize: 26,
                   fontWeight: FontWeight.w800,
