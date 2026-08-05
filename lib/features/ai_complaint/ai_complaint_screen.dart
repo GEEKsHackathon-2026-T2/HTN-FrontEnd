@@ -2,9 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:latlong2/latlong.dart';
+import '../../core/auth/session.dart';
 import '../../core/network/api_client.dart';
 import '../../core/theme/app_colors.dart';
+import '../report_complete/report_complete_screen.dart';
 import 'data/reports_api.dart';
+import 'services/exif_location.dart';
 import 'widgets/ai_banner.dart';
 import 'widgets/description_section.dart';
 import 'widgets/location_section.dart';
@@ -13,6 +17,8 @@ import 'widgets/report_type_section.dart';
 import 'widgets/submit_bar.dart';
 
 const _maxMediaFiles = 10;
+
+enum _LocationSource { none, exif, manual }
 
 class AiComplaintScreen extends StatefulWidget {
   const AiComplaintScreen({super.key});
@@ -33,8 +39,12 @@ class _AiComplaintScreenState extends State<AiComplaintScreen> {
   bool _categoriesError = false;
   String? _selectedCategoryCode;
 
-  Position? _position;
-  bool _loadingLocation = true;
+  LatLng? _location;
+  _LocationSource _locationSource = _LocationSource.none;
+  // Best-effort only, used to center the manual picker — never submitted
+  // directly, since the report's location should come from the photo (EXIF)
+  // or an explicit manual pick, not "wherever the reporter is standing now".
+  Position? _devicePosition;
 
   bool _submitting = false;
 
@@ -42,7 +52,7 @@ class _AiComplaintScreenState extends State<AiComplaintScreen> {
   void initState() {
     super.initState();
     _loadCategories();
-    _loadLocation();
+    _loadDevicePosition();
   }
 
   @override
@@ -72,8 +82,7 @@ class _AiComplaintScreenState extends State<AiComplaintScreen> {
     }
   }
 
-  Future<void> _loadLocation() async {
-    setState(() => _loadingLocation = true);
+  Future<void> _loadDevicePosition() async {
     try {
       var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
@@ -81,25 +90,14 @@ class _AiComplaintScreenState extends State<AiComplaintScreen> {
       }
       final denied = permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever;
-      if (denied || !await Geolocator.isLocationServiceEnabled()) {
-        if (!mounted) return;
-        setState(() {
-          _position = null;
-          _loadingLocation = false;
-        });
-        return;
-      }
+      if (denied || !await Geolocator.isLocationServiceEnabled()) return;
       final position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
       );
       if (!mounted) return;
-      setState(() {
-        _position = position;
-        _loadingLocation = false;
-      });
+      setState(() => _devicePosition = position);
     } catch (_) {
-      if (!mounted) return;
-      setState(() => _loadingLocation = false);
+      // Best-effort only — the picker just falls back to a default center.
     }
   }
 
@@ -120,6 +118,37 @@ class _AiComplaintScreenState extends State<AiComplaintScreen> {
     if (files.length > toAdd.length) {
       _showError('사진은 최대 $_maxMediaFiles장까지 첨부할 수 있습니다.');
     }
+    _tryAutoLocationFromExif(toAdd);
+  }
+
+  /// Uses the first newly-added photo that has GPS EXIF data — but only
+  /// while no location has been set yet, so it never overrides a manual
+  /// pick the user already made.
+  Future<void> _tryAutoLocationFromExif(List<XFile> newFiles) async {
+    for (final file in newFiles) {
+      if (_locationSource != _LocationSource.none) return;
+      final point = await extractExifLocation(file.path);
+      if (point == null) continue;
+      if (!mounted || _locationSource != _LocationSource.none) return;
+      setState(() {
+        _location = point;
+        _locationSource = _LocationSource.exif;
+      });
+      return;
+    }
+  }
+
+  Future<void> _openLocationPicker() async {
+    final center = _location ??
+        (_devicePosition != null
+            ? LatLng(_devicePosition!.latitude, _devicePosition!.longitude)
+            : null);
+    final result = await context.push<LatLng>('/location-picker', extra: center);
+    if (result == null || !mounted) return;
+    setState(() {
+      _location = result;
+      _locationSource = _LocationSource.manual;
+    });
   }
 
   Future<void> _pickCamera() async {
@@ -148,11 +177,15 @@ class _AiComplaintScreenState extends State<AiComplaintScreen> {
     setState(() => _mediaFiles.removeAt(index));
   }
 
-  String get _locationLabel {
-    if (_loadingLocation) return '현재 위치를 확인하는 중...';
-    if (_position == null) return '위치 정보를 가져올 수 없습니다. 위치 권한을 확인해주세요.';
-    return '현재 위치: 위도 ${_position!.latitude.toStringAsFixed(4)}, '
-        '경도 ${_position!.longitude.toStringAsFixed(4)}';
+  String? get _locationSourceLabel {
+    switch (_locationSource) {
+      case _LocationSource.exif:
+        return '사진에서 자동으로 인식된 위치';
+      case _LocationSource.manual:
+        return '직접 선택한 위치';
+      case _LocationSource.none:
+        return null;
+    }
   }
 
   Future<void> _submit() async {
@@ -169,13 +202,15 @@ class _AiComplaintScreenState extends State<AiComplaintScreen> {
 
     setState(() => _submitting = true);
     try {
+      await Session.ensureSignedIn();
+
       final reportId = await _api.createReport(
         categoryCode: leaf.code,
         content: _descriptionController.text.trim().isEmpty
             ? null
             : _descriptionController.text.trim(),
-        latitude: _position?.latitude,
-        longitude: _position?.longitude,
+        latitude: _location?.latitude,
+        longitude: _location?.longitude,
       );
 
       if (_mediaFiles.isNotEmpty) {
@@ -202,13 +237,16 @@ class _AiComplaintScreenState extends State<AiComplaintScreen> {
         }
       }
 
-      await _api.submitReport(reportId);
+      final result = await _api.submitReport(reportId);
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('제보가 접수되었습니다.')),
+      context.pushReplacement(
+        '/report-complete',
+        extra: ReportCompletionData(
+          result: result,
+          categoryNameKo: selectedGroup!.nameKo,
+        ),
       );
-      context.pop();
     } on ApiException catch (e) {
       _showError(e.message);
     } catch (e) {
@@ -266,8 +304,9 @@ class _AiComplaintScreenState extends State<AiComplaintScreen> {
             ),
             const SizedBox(height: 20),
             LocationSection(
-              locationLabel: _locationLabel,
-              onEditLocation: _loadLocation,
+              point: _location,
+              sourceLabel: _locationSourceLabel,
+              onEditLocation: _openLocationPicker,
             ),
             const SizedBox(height: 20),
             ReportTypeSection(

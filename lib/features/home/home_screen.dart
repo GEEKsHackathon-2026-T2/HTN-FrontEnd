@@ -7,7 +7,7 @@ import 'widgets/home_header.dart';
 import 'widgets/home_search_bar.dart';
 import 'widgets/promo_banner.dart';
 import 'widgets/quick_service_section.dart';
-import 'widgets/section_title.dart';
+import '../../shared/widgets/section_title.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
