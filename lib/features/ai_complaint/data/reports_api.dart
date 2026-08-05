@@ -58,9 +58,79 @@ class PresignFile {
   final int sizeBytes;
 }
 
-/// Wraps the `/categories` and `/reports` endpoints (docs/05-api.md §3, §4).
+DateTime? _parseDate(dynamic value) {
+  return value is String ? DateTime.tryParse(value) : null;
+}
+
+/// The backend doesn't return a formatted receipt number or an assigned
+/// department name yet (checked `reports.controller.ts` submit response and
+/// `report.serializer.ts` — neither field exists there today). These are
+/// read defensively so the UI upgrades automatically once the backend adds
+/// them, without another frontend change.
+class SubmitResult {
+  const SubmitResult({
+    required this.id,
+    required this.status,
+    this.currentDueAt,
+    this.receiptNumber,
+    this.departmentName,
+  });
+
+  final String id;
+  final String status;
+  final DateTime? currentDueAt;
+  final String? receiptNumber;
+  final String? departmentName;
+
+  factory SubmitResult.fromJson(Map<String, dynamic> json) {
+    final deadline = json['deadline'] as Map<String, dynamic>?;
+    return SubmitResult(
+      id: json['id'] as String,
+      status: json['status'] as String,
+      currentDueAt: _parseDate(deadline?['currentDueAt']),
+      receiptNumber: json['receiptNumber'] as String?,
+      departmentName: json['departmentName'] as String?,
+    );
+  }
+}
+
+class MyReport {
+  const MyReport({
+    required this.id,
+    required this.status,
+    this.categoryNameKo,
+    this.submittedAt,
+    this.currentDueAt,
+    this.receiptNumber,
+    this.departmentName,
+  });
+
+  final String id;
+  final String status;
+  final String? categoryNameKo;
+  final DateTime? submittedAt;
+  final DateTime? currentDueAt;
+  final String? receiptNumber;
+  final String? departmentName;
+
+  factory MyReport.fromJson(Map<String, dynamic> json) {
+    final deadline = json['deadline'] as Map<String, dynamic>?;
+    return MyReport(
+      id: json['id'] as String,
+      status: json['status'] as String,
+      categoryNameKo: json['categoryNameKo'] as String?,
+      submittedAt: _parseDate(json['submittedAt']),
+      currentDueAt: _parseDate(deadline?['currentDueAt']),
+      receiptNumber: json['receiptNumber'] as String?,
+      departmentName: json['departmentName'] as String?,
+    );
+  }
+}
+
+/// Wraps the `/categories`, `/reports`, and `/me/reports` endpoints
+/// (docs/05-api.md §3, §4).
 class ReportsApi {
-  ReportsApi({ApiClient? client}) : _client = client ?? ApiClient();
+  ReportsApi({ApiClient? client}) : _client = client ?? apiClient;
 
   final ApiClient _client;
 
@@ -130,7 +200,15 @@ class ReportsApi {
     return _client.post('/reports/$reportId/media/$mediaId/complete', const {});
   }
 
-  Future<void> submitReport(String reportId) {
-    return _client.post('/reports/$reportId/submit', const {});
+  Future<SubmitResult> submitReport(String reportId) async {
+    final res = await _client.post('/reports/$reportId/submit', const {});
+    return SubmitResult.fromJson(res);
+  }
+
+  /// 내 제보 목록 — newest first, to match "지금까지 올린 것" stacking.
+  Future<List<MyReport>> fetchMyReports() async {
+    final res = await _client.get('/me/reports?sort=recent') as Map<String, dynamic>;
+    final data = res['data'] as List;
+    return data.map((e) => MyReport.fromJson(e as Map<String, dynamic>)).toList();
   }
 }
